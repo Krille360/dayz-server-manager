@@ -103,12 +103,33 @@ export class SteamCMD implements IService {
 
     }
 
-    private getLoginArgs(): string[] {
+    private getLoginArgs(ipath: string): string[] {
         return [
+            '+force_install_dir',
+            ipath,
             '+login',
             this.manager.config!.steamUsername,
             this.manager.config!.steamPassword ?? '',
         ];
+    }
+
+    private getPathArgs(type: string): string[] {
+
+        if (type == "server") {
+            const ipath = this.manager.getServerPath();
+            fse.ensureDirSync(ipath);
+            return [
+                ...this.getLoginArgs(ipath),
+            ];
+        }else if(type == "mod"){
+            const ipath = this.getWsBasePath();
+            fse.ensureDirSync(ipath);
+            return [
+                ...this.getLoginArgs(ipath),
+            ];
+        }else{
+            return;
+        }
     }
 
     private async execute(args: string[]): Promise<boolean> {
@@ -161,18 +182,10 @@ export class SteamCMD implements IService {
 
         return !!serverFolder && !!serverExe
         && fs.existsSync(path.join(serverFolder, serverExe));
-
     }
 
     public async updateServer(): Promise<boolean> {
-
-        const serverPath = this.manager.getServerPath();
-        fse.ensureDirSync(serverPath);
-
         const success = await this.execute([
-            ...this.getLoginArgs(),
-            '+force_install_dir',
-            serverPath,
             '+app_update',
             (this.manager.config?.experimentalServer ? SteamCMD.DAYZ_EXPERIMENTAL_SERVER_APP_ID : SteamCMD.DAYZ_SERVER_APP_ID),
             'validate',
@@ -226,18 +239,12 @@ export class SteamCMD implements IService {
 
     public async updateMod(modId: string): Promise<boolean> {
 
-        const wsBasePath = this.getWsBasePath();
-        fse.ensureDirSync(wsBasePath);
 
         const success = await this.execute([
-            ...this.getLoginArgs(),
-            '+force_install_dir',
-            wsBasePath,
             '+workshop_download_item',
             SteamCMD.DAYZ_APP_ID,
             modId,
             'validate',
-            '+quit',
         ]);
 
         if (!success) {
@@ -249,16 +256,19 @@ export class SteamCMD implements IService {
         return !!modName;
     }
 
+
     public async updateMods(): Promise<boolean> {
         const modIds = this.manager.getModIdList();
         // single mod updates must be run synchronously
         // updating multiple mods at once increases the chance of timeouts
         // the retry would then cause the whole process to start all over
+        await this.execute([...this.getPathArgs("mod"),]);
         for (const modId of modIds) {
             if (!await this.updateMod(modId)) {
                 return false;
             }
         }
+        await this.execute(['+quit',]);
         return true;
     }
 
